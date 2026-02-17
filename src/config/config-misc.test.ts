@@ -198,6 +198,17 @@ describe("cron webhook schema", () => {
 
     expect(res.success).toBe(false);
   });
+
+  it("accepts cron.webhookAllowPrivateUrls", () => {
+    const res = OpenClawSchema.safeParse({
+      cron: {
+        webhookToken: "secret-token",
+        webhookAllowPrivateUrls: true,
+      },
+    });
+
+    expect(res.success).toBe(true);
+  });
 });
 
 describe("broadcast", () => {

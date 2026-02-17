@@ -14,6 +14,7 @@ import { resolveCronStorePath } from "../cron/store.js";
 import { normalizeHttpWebhookUrl } from "../cron/webhook-url.js";
 import { runHeartbeatOnce } from "../infra/heartbeat-runner.js";
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
+import { fetchWithSsrFGuard } from "../infra/net/fetch-guard.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { getChildLogger } from "../logging.js";
 import { normalizeAgentId, toAgentStoreSessionKey } from "../routing/session-key.js";
@@ -200,6 +201,7 @@ export function buildGatewayCronService(params: {
       if (evt.action === "finished") {
         const webhookToken = params.cfg.cron?.webhookToken?.trim();
         const legacyWebhook = params.cfg.cron?.webhook?.trim();
+        const webhookAllowPrivateUrls = params.cfg.cron?.webhookAllowPrivateUrls === true;
         const job = cron.getJob(evt.jobId);
         const legacyNotify = (job as { notify?: unknown } | undefined)?.notify === true;
         const webhookTarget = resolveCronWebhookTarget({
@@ -239,16 +241,18 @@ export function buildGatewayCronService(params: {
           if (webhookToken) {
             headers.Authorization = `Bearer ${webhookToken}`;
           }
-          const abortController = new AbortController();
-          const timeout = setTimeout(() => {
-            abortController.abort();
-          }, CRON_WEBHOOK_TIMEOUT_MS);
-          void fetch(webhookTarget.url, {
-            method: "POST",
-            headers,
-            body: JSON.stringify(evt),
-            signal: abortController.signal,
+          void fetchWithSsrFGuard({
+            url: webhookTarget.url,
+            init: {
+              method: "POST",
+              headers,
+              body: JSON.stringify(evt),
+            },
+            timeoutMs: CRON_WEBHOOK_TIMEOUT_MS,
+            auditContext: "cron-webhook",
+            policy: webhookAllowPrivateUrls ? { allowPrivateNetwork: true } : undefined,
           })
+            .then(({ release }) => release())
             .catch((err) => {
               cronLogger.warn(
                 {
@@ -258,9 +262,6 @@ export function buildGatewayCronService(params: {
                 },
                 "cron: webhook delivery failed",
               );
-            })
-            .finally(() => {
-              clearTimeout(timeout);
             });
         }
         const logPath = resolveCronRunLogPath({

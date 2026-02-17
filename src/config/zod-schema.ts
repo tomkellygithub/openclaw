@@ -305,6 +305,7 @@ export const OpenClawSchema = z
         maxConcurrentRuns: z.number().int().positive().optional(),
         webhook: HttpUrlSchema.optional(),
         webhookToken: z.string().optional().register(sensitive),
+        webhookAllowPrivateUrls: z.boolean().optional(),
         sessionRetention: z.union([z.string(), z.literal(false)]).optional(),
       })
       .strict()
